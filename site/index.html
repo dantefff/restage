@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>restage — One-click OS reinstallation &amp; rescue toolkit</title>
+<meta name="description" content="restage lets you reinstall a Linux server over the network with a single command, boot a rescue environment, or write a disk image — no control panel, no rescue ISO.">
+<meta property="og:title" content="restage — One-click OS reinstallation &amp; rescue toolkit">
+<meta property="og:description" content="Reinstall Linux or Windows on your VPS/bare-metal server over the network with a single command.">
+<meta property="og:url" content="https://codebyjawad.github.io/restage/">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0b0f14">
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg2: #11161d;
+    --panel: #151b24;
+    --border: #232c38;
+    --fg: #dbe4ee;
+    --muted: #8b98a8;
+    --accent: #4ade80;
+    --accent-dim: #1e4629;
+    --blue: #60a5fa;
+    --yellow: #facc15;
+    --red: #f87171;
+    --mono: "SFMono-Regular", "Cascadia Code", Consolas, "JetBrains Mono", Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+  header {
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg2), var(--bg));
+    padding: 64px 0 40px;
+  }
+  .logo {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-size: 15px; color: var(--muted); margin-bottom: 28px;
+  }
+  .logo .dot { color: var(--accent); }
+  h1 { font-size: clamp(30px, 5vw, 52px); font-weight: 700; letter-spacing: -0.02em; }
+  h1 .cmd { color: var(--accent); }
+  .tag { color: var(--muted); font-size: clamp(15px, 2.4vw, 19px); margin-top: 14px; max-width: 620px; }
+  .terminal {
+    margin-top: 34px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  .term-bar span { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .term-bar .r { background: #ff5f56; } .term-bar .y { background: #ffbd2e; } .term-bar .g { background: #27c93f; }
+  .term-bar .title { margin-left: 10px; color: var(--muted); font-size: 12px; }
+  .term-body { padding: 18px 20px; font-size: 13px; overflow-x: auto; }
+  .term-body .line { white-space: pre-wrap; word-break: break-word; }
+  .term-body .p { color: var(--accent); }
+  .term-body .path { color: var(--blue); }
+  .term-body .dim { color: var(--muted); }
+  .term-body .out { color: var(--fg); }
+  .term-body .ok { color: var(--accent); }
+  .term-body .warn { color: var(--yellow); }
+  .cursor { display: inline-block; width: 8px; height: 15px; background: var(--accent); vertical-align: text-bottom; animation: blink 1.1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  section { padding: 56px 0; border-bottom: 1px solid var(--border); }
+  h2 { font-size: 22px; margin-bottom: 18px; letter-spacing: -0.01em; }
+  h2 .n { color: var(--accent-dim); color: var(--accent); opacity: 0.7; margin-right: 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card .k { color: var(--accent); font-weight: 700; }
+  .card p { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .code { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; font-size: 13px; overflow-x: auto; }
+  .code .c { color: var(--muted); }
+  .code .k { color: var(--yellow); }
+  .code .s { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td code, p code, li code { background: var(--panel); border: 1px solid var(--border); padding: 1px 6px; border-radius: 5px; font-size: 0.9em; color: var(--accent); }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .btn {
+    display: inline-block; margin-top: 22px;
+    background: var(--accent); color: #06210f; font-weight: 700;
+    padding: 13px 26px; border-radius: 8px; font-size: 15px;
+    transition: filter .15s ease;
+  }
+  .btn:hover { filter: brightness(1.1); text-decoration: none; }
+  .btn.gh { background: var(--panel); color: var(--fg); border: 1px solid var(--border); margin-left: 10px; }
+  footer { padding: 36px 0 50px; color: var(--muted); font-size: 13px; }
+  ul.clean { list-style: none; }
+  ul.clean li { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  ul.clean li::before { content: "> "; color: var(--accent); }
+  .warn-box { border: 1px solid var(--yellow); background: rgba(250,204,21,.06); border-radius: 8px; padding: 14px 16px; font-size: 13px; color: var(--yellow); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="logo"><span class="dot">$</span> codebyjawad/restage</div>
+    <h1>Reinstall your server<br>with one command.</h1>
+    <p class="tag">One-click OS reinstallation &amp; rescue toolkit for VPS and bare-metal servers. No control panel. No rescue ISO. No bootloader surgery.</p>
+
+    <div class="terminal" aria-hidden="true">
+      <div class="term-bar">
+        <span class="r"></span><span class="y"></span><span class="g"></span>
+        <span class="title">root@vps:~</span>
+      </div>
+      <div class="term-body">
+        <div class="line"><span class="p">root@vps</span><span class="path">:~</span><span class="p">$</span> restage linux debian 12 --ssh-key <span class="s">"ssh-ed25519 AAAA..."</span> --dry-run</div>
+        <div class="line"><span class="dim">────────────────────────────────────────────────────────</span></div>
+        <div class="line"><span class="dim">restage</span> <span class="out">action plan (dry run, nothing will change)</span></div>
+        <div class="line"><span class="out">  target disk  : </span><span class="ok">/dev/vda</span> <span class="dim">(PTUUID 0b7f-9a21)</span></div>
+        <div class="line"><span class="out">  install      : </span><span class="ok">Debian 12</span> <span class="dim">(official cloud image)</span></div>
+        <div class="line"><span class="out">  boot entry   : one-shot, created by restage</span></div>
+        <div class="line"><span class="out">  ssh          : public key installed, password login disabled</span></div>
+        <div class="line"><span class="dim">────────────────────────────────────────────────────────</span></div>
+        <div class="line"><span class="p">root@vps</span><span class="path">:~</span><span class="p">$</span> restage linux debian 12 --ssh-key <span class="s">"ssh-ed25519 AAAA..."</span> --yes</div>
+        <div class="line"><span class="dim">  [1/4] fetching kernel + initrd ...</span></div>
+        <div class="line"><span class="ok">  [2/4] patching installer runtime  ✔</span></div>
+        <div class="line"><span class="ok">  [3/4] one-shot boot entry set    ✔</span></div>
+        <div class="line"><span class="ok">  [4/4] reboot into Debian 12      ✔</span><span class="cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">01</span>Why restage?</h2>
+    <div class="grid">
+      <div class="card"><span class="k">Two-stage install</span><p>Host patches a kernel+initrd and installs a one-shot boot entry. After reboot, the installer finds your disk by partition-table UUID — never by device name.</p></div>
+      <div class="card"><span class="k">Safe by design</span><p>Nothing touches disk until the action plan is shown and confirmed. Always start with <code>--dry-run</code>.</p></div>
+      <div class="card"><span class="k">No control panel</span><p>Runs from SSH, as root, on any Linux VPS or bare-metal box. Everything comes from official images.</p></div>
+      <div class="card"><span class="k">Survives renaming</span><p>Disk is selected by PTUUID, so the tool keeps working even when kernel device names change between boots.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">02</span>Quick start</h2>
+    <div class="code"><div><span class="c"># Always plan first — this changes nothing:</span></div>
+<div><span class="p">$</span> restage linux debian 12 --ssh-key <span class="s">"ssh-ed25519 AAAA..."</span> --dry-run</div>
+<div></div>
+<div><span class="c"># Then reinstall, unattended:</span></div>
+<div><span class="p">$</span> restage linux debian 12 --ssh-key <span class="s">"ssh-ed25519 AAAA..."</span> --yes</div></div>
+    <a class="btn" href="https://github.com/codebyjawad/restage">Get restage on GitHub</a>
+    <a class="btn gh" href="https://github.com/codebyjawad/restage/blob/main/README.md">Read the README</a>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">03</span>Everything you can do</h2>
+    <div class="code"><div><span class="p">$</span> restage linux debian 12 --password <span class="s">'ChangeMe123!'</span> --yes</div>
+<div><span class="p">$</span> restage linux ubuntu 24.04 --password <span class="s">'ChangeMe123!'</span> --yes</div>
+<div><span class="p">$</span> restage dd --img https://example.com/image.qcow2 --yes</div>
+<div><span class="p">$</span> restage windows --image-name <span class="s">"Windows 11 Pro"</span> --yes</div>
+<div><span class="p">$</span> restage alpine <span class="c"># rescue environment, no disk writes</span></div>
+<div><span class="p">$</span> restage netboot <span class="c"># netboot.xyz menu</span></div>
+<div><span class="p">$</span> restage reset <span class="c"># cancel a pending reinstall</span></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">04</span>Supported targets</h2>
+    <table>
+      <tr><th>Command</th><th>Installs / boots</th></tr>
+      <tr><td><code>linux</code></td><td>Debian, Ubuntu, Alpine, AlmaLinux, Rocky, openEuler from official cloud images</td></tr>
+      <tr><td><code>dd</code></td><td>Any raw or compressed disk image (gzip / xz / zstd / qcow2)</td></tr>
+      <tr><td><code>windows</code></td><td>Windows from an official ISO</td></tr>
+      <tr><td><code>alpine</code></td><td>Alpine Live rescue environment (non-destructive)</td></tr>
+      <tr><td><code>netboot</code></td><td>netboot.xyz menu (non-destructive)</td></tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">05</span>Built like a real project</h2>
+    <ul class="clean">
+      <li>Modular <code>lib/</code> + <code>flows/</code> + <code>runtime/</code> — no 5k-line monolith</li>
+      <li>bats unit + integration tests, run on every push in CI</li>
+      <li>Strict, centralized input validation and an explicit action plan</li>
+      <li>POSIX-quoted generated config — no <code>eval</code> of user strings</li>
+      <li>Catalog-driven distro list — adding a distro is a data change, not a code change</li>
+    </ul>
+    <div class="warn-box" style="margin-top:18px">Warning: <code>linux</code>, <code>dd</code> and <code>windows</code> erase the entire primary disk. Always run with <code>--dry-run</code> first and keep a rescue plan.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>MIT licensed · <a href="https://github.com/codebyjawad/restage">github.com/codebyjawad/restage</a> · <a href="https://github.com/codebyjawad/restage/blob/main/docs/architecture.md">architecture</a> · <a href="https://github.com/codebyjawad/restage/blob/main/docs/configuration.md">configuration</a> · <a href="https://github.com/codebyjawad/restage/blob/main/SECURITY.md">security</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

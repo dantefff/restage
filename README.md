@@ -12,8 +12,18 @@ control panel, without a rescue ISO, and without manual bootloader surgery.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Shell](https://img.shields.io/badge/shell-bash/posix-4EAA25.svg)](#)
+[![GitHub stars](https://img.shields.io/github/stars/codebyjawad/restage?style=social&label=Stars)](https://github.com/codebyjawad/restage/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/codebyjawad/restage?style=social&label=Forks)](https://github.com/codebyjawad/restage/network/members)
+[![GitHub release](https://img.shields.io/github/v/release/codebyjawad/restage?color=blue)](https://github.com/codebyjawad/restage/releases)
+[![CI](https://github.com/codebyjawad/restage/actions/workflows/ci.yml/badge.svg)](https://github.com/codebyjawad/restage/actions)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Docs](https://img.shields.io/badge/docs-online-2ea44f.svg)](https://codebyjawad.github.io/restage/)
 
 ---
+
+## Star history
+
+[![Star History Chart](https://api.star-history.com/svg?repos=codebyjawad/restage&type=Date)](https://star-history.com/#codebyjawad/restage&Date)
 
 ## Why restage?
 

@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build release tarball
+        run: |
+          VERSION="${{ github.ref_name }}"
+          tar -czf "restage-${VERSION}.tar.gz" \
+            --exclude='.git' --exclude='.github' \
+            restage.sh bin lib flows runtime data VERSION README.md \
+            docs CHANGELOG.md LICENSE SECURITY.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: restage-*.tar.gz
+          generate_release_notes: true
