@@ -79,13 +79,13 @@ rs_os_load_catalog
 
 @test "requirements: overrides honoured via RS_FORCE" {
     # Simulate a machine with almost no RAM.
-    export RS_OS_MIN_RAM=8192
+    export RS_OS_MIN_RAM=1048576
     export RS_OS_NAME=debian
     export RS_FORCE=0
     run bash -c '
         source "${RS_REPO_ROOT}/lib/common.sh"
         source "${RS_REPO_ROOT}/lib/oslib.sh"
-        RS_OS_MIN_RAM=8192 RS_OS_NAME=debian RS_FORCE=0 \
+        RS_OS_MIN_RAM=1048576 RS_OS_NAME=debian RS_FORCE=0 \
             rs_os_check_requirements
     '
     [ "$status" -ne 0 ]
@@ -93,7 +93,7 @@ rs_os_load_catalog
     run bash -c '
         source "${RS_REPO_ROOT}/lib/common.sh"
         source "${RS_REPO_ROOT}/lib/oslib.sh"
-        RS_OS_MIN_RAM=8192 RS_OS_NAME=debian RS_FORCE=1 \
+        RS_OS_MIN_RAM=1048576 RS_OS_NAME=debian RS_FORCE=1 \
             rs_os_check_requirements
     '
     [ "$status" -eq 0 ]
