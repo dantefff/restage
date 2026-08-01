@@ -40,7 +40,7 @@ jobs:
             https://github.com/bats-core/bats-core/archive/refs/tags/v1.11.1.tar.gz
           mkdir -p /opt/bats
           tar -xzf /tmp/bats.tar.gz -C /opt/bats --strip-components=1
-          /opt/bats/install.sh /usr/local
+          sudo /opt/bats/install.sh /usr/local
 
       - name: Run tests
         run: ./tests/run.sh
