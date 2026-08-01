@@ -43,4 +43,4 @@ jobs:
           sudo /opt/bats/install.sh /usr/local
 
       - name: Run tests
-        run: ./tests/run.sh
+        run: sudo ./tests/run.sh
