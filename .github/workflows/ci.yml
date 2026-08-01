@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (syntax + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run project linters
+        run: ./scripts/lint.sh
+
+  test:
+    name: Test (bats unit + integration)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install bats-core + test deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cpio xz-utils
+          curl -fsSL -o /tmp/bats.tar.gz \
+            https://github.com/bats-core/bats-core/archive/refs/tags/v1.11.1.tar.gz
+          mkdir -p /opt/bats
+          tar -xzf /tmp/bats.tar.gz -C /opt/bats --strip-components=1
+          /opt/bats/install.sh /usr/local
+
+      - name: Run tests
+        run: ./tests/run.sh

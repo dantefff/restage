@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#
+# bin/restage — convenience launcher so the tool can be invoked from PATH.
+#
+#   export PATH="$PATH:/path/to/restage/bin"
+#   restage linux debian 12 --dry-run
+#
+# shellcheck shell=bash
+
+set -o nounset
+
+_self="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+exec "$(dirname "${_self}")/../restage.sh" "$@"

@@ -1,0 +1,20 @@
+# shellcheck configuration for restage
+#
+# Levels:
+#   error   - bugs (SC2086 and friends)
+#   warning - recommended changes (SC2116 etc.)
+#   info    - stylistic (SC2034, SC2317 are disabled globally below)
+#
+# `error` + most `warning` levels are treated as CI failures. `info` level
+# diagnostics that are noisy (e.g. variables that are intentionally used via
+# indirect expansion) are excluded here. See scripts/lint.sh for the full
+# CI matrix.
+
+severity=warning
+
+# Variables that look unused but are exported for use by sourced modules or
+# runtime (initrd) scripts.
+disable=SC2034
+
+# Functions that are used via `source` by other scripts, not called directly.
+disable=SC2317
