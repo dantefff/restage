@@ -31,6 +31,15 @@ RS_OS_CATALOG_FILE="${RS_OS_CATALOG_FILE:-${RS_REPO_ROOT}/data/distros.conf}"
 RS_ALPINE_BOOT_VERSION="3.22"
 RS_ALPINE_BOOT_KERNEL="https://dl-cdn.alpinelinux.org/alpine/v{ver}/releases/{arch}/netboot/vmlinuz-lts"
 RS_ALPINE_BOOT_INITRD="https://dl-cdn.alpinelinux.org/alpine/v{ver}/releases/{arch}/netboot/initramfs-lts"
+# Alpine's official netboot artifacts include a third file beyond the
+# kernel and initramfs: modloop, a squashfs of additional kernel modules
+# deliberately kept out of the base initramfs to keep it small (legacy
+# IDE/ATA controllers and other less-common hardware live only here). The
+# runtime fetches and merges this over the network once it has connectivity
+# (see runtime/common.sh:fetch_modloop) — without it, any hardware whose
+# driver isn't in the base initramfs's small module set is invisible no
+# matter how many times device probing retries.
+RS_ALPINE_BOOT_MODLOOP="https://dl-cdn.alpinelinux.org/alpine/v{ver}/releases/{arch}/netboot/modloop-lts"
 
 # ---------------------------------------------------------------- catalog --
 
@@ -185,6 +194,7 @@ rs_os_resolve() {
             # comes from the pinned Alpine version, never the target's.
             RS_OS_BOOT_KERNEL="$(rs_os_expand "${RS_ALPINE_BOOT_KERNEL}" "${RS_ALPINE_BOOT_VERSION}" "${arch}" "${carch}" "${codename}")"
             RS_OS_BOOT_INITRD="$(rs_os_expand "${RS_ALPINE_BOOT_INITRD}" "${RS_ALPINE_BOOT_VERSION}" "${arch}" "${carch}" "${codename}")"
+            RS_OS_BOOT_MODLOOP="$(rs_os_expand "${RS_ALPINE_BOOT_MODLOOP}" "${RS_ALPINE_BOOT_VERSION}" "${arch}" "${carch}" "${codename}")"
             local _cloud_tpl
             _cloud_tpl="$(_rs_os_field "${distro}" cloud)"
             if [[ -n "${_cloud_tpl}" ]]; then
@@ -230,6 +240,7 @@ rs_alpine_assets() {
     carch="$(rs_os_cloud_arch "alpine")"
     RS_OS_BOOT_KERNEL="$(rs_os_expand "${RS_ALPINE_BOOT_KERNEL}" "${RS_ALPINE_BOOT_VERSION}" "${arch}" "${carch}")"
     RS_OS_BOOT_INITRD="$(rs_os_expand "${RS_ALPINE_BOOT_INITRD}" "${RS_ALPINE_BOOT_VERSION}" "${arch}" "${carch}")"
+    RS_OS_BOOT_MODLOOP="$(rs_os_expand "${RS_ALPINE_BOOT_MODLOOP}" "${RS_ALPINE_BOOT_VERSION}" "${arch}" "${carch}")"
 }
 
 # Check current hardware against catalog requirements. Fatal on failure

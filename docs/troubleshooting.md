@@ -104,10 +104,35 @@ Common causes:
 
 ## Windows install issues
 
-`windows` resolves an official-edition lookup hint and requires
-`--image-name`. If the ISO URL pattern fails, supply it explicitly with
-`--iso`. Windows drivers beyond the stock image are supported via
-`--add-driver`.
+The `windows` flow runs a real unattended install. It partitions the disk
+(GPT: EFI + MSR + Windows + installer; MBR: two NTFS partitions), downloads
+the official ISO inside the Alpine installer, copies its contents onto the
+installer partition, renders an `autounattend.xml` that drives Windows
+Setup end to end, and installs a one-shot boot entry that starts Setup.
+Windows boots automatically afterwards.
+
+- A known edition can be looked up with `--image-name` alone
+  (e.g. `--image-name "Windows 11 Pro"`). This is a lookup hint, so
+  sometimes the direct link must be supplied explicitly with `--iso`.
+- The installer needs ~2 GB of free RAM beyond the netboot kernel and a
+  couple of GB of temporary disk for the ISO staging partition.
+- Storage drivers for non-virtio hardware can be injected with
+  `--add-driver path/to/*.inf`; on KVM the installer bundles virtio drivers
+  automatically.
+- Post-install tweaks are applied on first boot: the scheduled credentials
+  are enabled, RDP is turned on (on `--rdp-port`, default 3389), ping is
+  allowed with `--allow-ping`, and the host's static IP is applied to the
+  matching interface when you schedule with `--net-dhcp no`.
+
+### Unattended install hangs or boots to a black screen
+
+- The ISO download runs inside the installer; the `--web-port` log viewer
+  streams `restage.log`, which shows which phase is stuck.
+- If Setup complains it cannot find a disk, add the storage driver with
+  `--add-driver` (see above) rather than relying on the stock image.
+- If only the original firmware boot entry is overwritten, use
+  `efibootmgr -n` on the host to force the next boot from the removable
+  `\EFI\Microsoft\Boot\bootmgfw.efi` fallback.
 
 ## I want to debug the installer
 

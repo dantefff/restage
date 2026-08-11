@@ -69,7 +69,9 @@ shown and confirmed.
   openEuler from official cloud images; version/codename aware URLs.
 - **`dd`** — write a raw or compressed disk image (URL, supports
   gzip/xz/zstd/qcow2).
-- **`windows`** — reinstall to Windows from an official ISO.
+- **`windows`** — reinstall to Windows from an official ISO, fully
+  unattended: auto-partitions the disk, downloads the ISO inside the
+  installer, and drives Setup via a generated `autounattend.xml`.
 - **`alpine`** — boot the Alpine Live rescue environment (non-destructive).
 - **`netboot`** — boot the netboot.xyz menu (non-destructive).
 - **`reset`** — cancel a pending reinstall before the machine reboots.
@@ -208,6 +210,15 @@ Bug reports, fixes, and distro catalog additions are welcome. Please read
 [CONTRIBUTING.md](CONTRIBUTING.md) and
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) first, and run `make check` before
 opening a PR.
+
+## Support
+
+If `restage` saves you time, consider supporting the project:
+
+- **GitHub Sponsors** — https://github.com/sponsors/codebyjawad
+- **NayaPay** (Pakistan) — send directly to `mjikhan@nayapay`
+
+Your support keeps the toolkit tested, documented, and free.
 
 ## Security
 

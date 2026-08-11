@@ -37,7 +37,7 @@ rs_net_primary_iface() {
 
 # CIDR of the primary address on $1 (e.g. 192.0.2.10/24).
 rs_net_iface_cidr_v4() {
-    ip -o addr show dev "${1}" scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,""); split($4,a,"/"); print $4; exit}'
+    ip -o addr show dev "${1}" scope global 2>/dev/null | awk '/inet /{print $4; exit}'
 }
 
 rs_net_iface_cidr_v6() {
@@ -53,6 +53,22 @@ rs_net_gateway_v6() {
     ip -6 route show dev "${1}" 2>/dev/null | awk '/^default/{print $3; exit}'
 }
 
+# Nameservers for $1 as a space-separated list. Tries systemd-resolved,
+# then /etc/resolv.conf (skipping the stub), then the netplan config.
+rs_net_dns_v4() {
+    local dns=""
+    if command -v resolvectl >/dev/null 2>&1; then
+        dns="$(resolvectl dns "${1}" 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | tr '\n' ' ' | sed 's/ $//')"
+    fi
+    if [[ -z "${dns}" ]]; then
+        dns="$(awk '/^nameserver/{print $2}' /etc/resolv.conf 2>/dev/null | grep -vE '^(127\.|::1$)' | tr '\n' ' ' | sed 's/ $//')"
+    fi
+    if [[ -z "${dns}" ]]; then
+        dns="$(grep -rhA3 'nameservers:' /etc/netplan/ 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | tr '\n' ' ' | sed 's/ $//')"
+    fi
+    printf '%s\n' "${dns}"
+}
+
 # Capture networking state into RS_NET_* globals.
 rs_net_capture() {
     local iface
@@ -65,10 +81,8 @@ rs_net_capture() {
     RS_IPV6_ADDR="$(rs_net_iface_cidr_v6 "${iface}")"
     RS_IPV4_GW="$(rs_net_gateway_v4 "${iface}")"
     RS_IPV6_GW="$(rs_net_gateway_v6 "${iface}")"
-    if command -v resolvectl >/dev/null 2>&1; then
-        RS_IPV4_DNS="$(resolvectl dns "${iface}" 2>/dev/null | awk '{$1=""; print}' | tr ' ' ' ')"
-    fi
-    rs_log_debug "net: iface=${RS_NET_IFACE} v4=${RS_IPV4_ADDR:-dhcp} gw4=${RS_IPV4_GW:-none} v6=${RS_IPV6_ADDR:-none} gw6=${RS_IPV6_GW:-none}"
+    RS_IPV4_DNS="$(rs_net_dns_v4 "${iface}")"
+    rs_log_debug "net: iface=${RS_NET_IFACE} v4=${RS_IPV4_ADDR:-dhcp} gw4=${RS_IPV4_GW:-none} v6=${RS_IPV6_ADDR:-none} gw6=${RS_IPV6_GW:-none} dns=${RS_IPV4_DNS:-none}"
 }
 
 # Decide static vs dhcp: RS_NET_DHCP in {auto, yes, no}.

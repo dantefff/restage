@@ -16,24 +16,42 @@
 set -u
 
 # ------------------------------------------------------------------ init --
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+# Applets must exist before anything below runs (mount, mkdir, mdev, ip, ...).
+[ -x /bin/busybox ] && /bin/busybox --install -s 2>/dev/null || true
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || {
     mkdir -p /dev
     mdev -s 2>/dev/null || true
 }
-mkdir -p /run /var/run /tmp /mnt /os /logdir 2>/dev/null || true
-
 # ------------------------------------------------------------------ load --
 . /restage-common.sh
 . /initrd-network.sh
+. /windows.sh
 
+install_applets
+# Coldplug: load drivers (virtio, nvme, ...) via MODALIAS -> modprobe and
+# create device nodes. Required or /dev/vda and eth0 never appear.
+load_device_modules
 load_conf /restage.conf
 
 log "restage runtime installer v0.1 (mode=${RESTAGE_MODE:-?})"
 log "booted; bringing up networking"
 
 initrd_network_up || warn "network bring-up had issues; installs may fail"
+
+# Pull in Alpine's modloop (extra kernel modules kept out of the base
+# initramfs) now that networking is up, then re-probe hardware so any
+# device whose driver only lives there — e.g. an emulated IDE/PIIX3 disk
+# controller instead of virtio-blk — gets picked up before disk lookup.
+if [ -n "${RESTAGE_MODLOOP_URL:-}" ]; then
+    if fetch_modloop "${RESTAGE_MODLOOP_URL}"; then
+        log "re-probing hardware with the expanded module set"
+        load_device_modules
+    fi
+fi
 
 # Persistent log file, served over HTTP for convenience.
 LOG=/restage.log
@@ -45,9 +63,14 @@ exec 1>>"$LOG" 2>&1
 
 start_logviewer() {
     port=${RESTAGE_WEB_PORT:-80}
-    command -v httpd >/dev/null 2>&1 || return 0
+    command -v httpd >/dev/null 2>&1 || {
+        log "no httpd applet; installing busybox-extras for the log viewer"
+        apk_repos "${RESTAGE_ALPINE_VER:-3.22}"
+        apk add --no-cache busybox-extras >/dev/null 2>&1 && busybox --install -s 2>/dev/null || true
+    }
+    command -v httpd >/dev/null 2>&1 || { warn "httpd unavailable; log viewer disabled"; return 0; }
     mkdir -p /logdir
-    cp "$LOG" /logdir/restage.log 2>/dev/null || true
+    ln -sf "$LOG" /logdir/restage.log 2>/dev/null || cp "$LOG" /logdir/restage.log 2>/dev/null || true
     httpd -p "$port" -h /logdir 2>/dev/null &
     log "log viewer: http://<ip>:$port/restage.log"
 }
@@ -87,6 +110,7 @@ setup_root_auth() {
 # Find the device whose PTUUID matches $1.
 find_disk() {
     _want=$1
+    _want=$(printf '%s' "$_want" | tr 'A-Z' 'a-z')
     for _dev in /sys/block/*; do
         _name=${_dev##*/}
         case "$_name" in loop* | ram* | fd* | sr*) continue ;; esac
@@ -96,9 +120,14 @@ find_disk() {
             _uuid=$(blkid -s PTUUID -o value "/dev/$_name" 2>/dev/null)
         fi
         if [ -z "$_uuid" ] && command -v fdisk >/dev/null 2>&1; then
+            # GPT: "Disk identifier (GUID): <uuid>"; MBR: "Disk identifier: 0x..."
             _uuid=$(fdisk -l "/dev/$_name" 2>/dev/null | \
-                sed -n 's/.*Disk identifier: *//p' | tr -d ' ')
+                sed -n -e 's/.*Disk identifier (GUID): *//p' \
+                       -e 's/.*Disk identifier: *//p' | \
+                tr -d ' ' | head -n1)
         fi
+        # fdisk prints GPT identifiers in uppercase; compare case-insensitively.
+        _uuid=$(printf '%s' "$_uuid" | tr 'A-Z' 'a-z')
         if [ -n "$_uuid" ] && [ "$_uuid" = "$_want" ]; then
             printf '/dev/%s\n' "$_name"
             return 0
@@ -293,17 +322,9 @@ write_netplan() {
 
 do_windows() {
     _iso=${RESTAGE_ISO_URL:-}
-    [ -z "$_iso" ] && die "windows mode requires an ISO URL"
-    need_cmd curl
-    log "downloading Windows ISO (this can take a while)"
-    confirm "Type 'yes' to begin the Windows install onto $disk" || die "aborted by operator"
-    curl -fsSL -o /windows.iso "$_iso" || die "ISO download failed"
-    modprobe loop 2>/dev/null || true
-    mkdir -p /iso
-    mount -o loop,ro /windows.iso /iso || die "could not mount ISO (loop support missing in kernel?)"
-    log "ISO mounted at /iso"
-    warn "windows unattended setup is an extension point in v0.1"
-    warn "boot the ISO manually (or from a rescue shell) to complete the install"
+    log "unattended Windows install (image: ${RESTAGE_IMAGE_NAME:-autodetect})"
+    confirm "Type 'yes' to erase $disk and install Windows" || die "aborted by operator"
+    win_main
     poweroff_decision
 }
 

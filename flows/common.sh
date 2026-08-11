@@ -80,9 +80,17 @@ rs_runtime_stage() {
     cp "${RS_REPO_ROOT}/runtime/common.sh" "${stage}/restage-common.sh"
     cp "${RS_REPO_ROOT}/runtime/trans.sh" "${stage}/trans.sh"
     cp "${RS_REPO_ROOT}/runtime/initrd-network.sh" "${stage}/initrd-network.sh"
+    cp "${RS_REPO_ROOT}/runtime/windows.sh" "${stage}/windows.sh"
+    cp "${RS_REPO_ROOT}/runtime/windows-unattend.xml" "${stage}/windows-unattend.xml"
 
     # 2. rendered network bring-up script
     rs_net_render_script "${RS_NET_IFACE}" >"${stage}/network.sh"
+
+    # 3. custom drivers staged by the windows flow (--add-driver)
+    if [[ -n "${RS_RUNTIME_DRIVER_DIR:-}" ]] && [[ -d "${RS_RUNTIME_DRIVER_DIR}" ]]; then
+        mkdir -p "${stage}/drivers"
+        cp -a "${RS_RUNTIME_DRIVER_DIR}/." "${stage}/drivers/"
+    fi
 
     # 3. runtime environment (POSIX-quoted so the initrd can source it)
     {
@@ -100,7 +108,11 @@ rs_runtime_stage() {
         printf 'RESTAGE_IPV6=%s\n' "$(rs_sh_quote "${RS_IPV6_ADDR}")"
         printf 'RESTAGE_GW4=%s\n' "$(rs_sh_quote "${RS_IPV4_GW}")"
         printf 'RESTAGE_GW6=%s\n' "$(rs_sh_quote "${RS_IPV6_GW}")"
+        printf 'RESTAGE_DNS1=%s\n' "$(rs_sh_quote "${RS_IPV4_DNS%% *}")"
         printf 'RESTAGE_NET_MODE=%s\n' "$(rs_net_is_dhcp && printf 'dhcp' || printf 'static')"
+        printf 'RESTAGE_ASSUME_YES=%s\n' "$(rs_sh_quote "${RS_ASSUME_YES}")"
+        printf 'RESTAGE_ALPINE_VER=%s\n' "$(rs_sh_quote "${RS_ALPINE_BOOT_VERSION:-3.22}")"
+        printf 'RESTAGE_MODLOOP_URL=%s\n' "$(rs_sh_quote "${RS_OS_BOOT_MODLOOP:-}")"
         printf 'RESTAGE_OS=%s\n' "$(rs_sh_quote "${RS_OS_NAME:-}")"
         printf 'RESTAGE_OS_VERSION=%s\n' "$(rs_sh_quote "${RS_OS_VERSION:-}")"
         printf 'RESTAGE_IMAGE=%s\n' "$(rs_sh_quote "${RS_OS_IMAGE:-}")"
@@ -112,7 +124,7 @@ rs_runtime_stage() {
             printf '%s\n' "${kv}"
         done
     } >"${stage}/restage.conf"
-    chmod 755 "${stage}/trans.sh" "${stage}/initrd-network.sh"
+    chmod 755 "${stage}/trans.sh" "${stage}/initrd-network.sh" "${stage}/network.sh"
 
     printf '%s\n' "${stage}"
 }

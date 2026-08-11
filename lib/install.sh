@@ -94,6 +94,11 @@ rs_initrd_patch() {
     tmp="$(mktemp -d "${RS_WORK_DIR}/initrd.XXXXXX")"
     rs_initrd_unpack "${src}" "${tmp}"
     cp -a "${inject}/." "${tmp}/"
+    # Make the installer the initramfs PID 1. The stock Alpine netboot /init
+    # insists on finding a bootable root and switch_root'ing into it, so a
+    # bare `init=/trans.sh` never reaches our script on diskless installs.
+    cp "${tmp}/trans.sh" "${tmp}/init"
+    chmod 755 "${tmp}/init"
     rs_initrd_pack "${tmp}" "${dest}"
     # shellcheck disable=SC2154
     [[ -d "${tmp}" ]] && rm -rf "${tmp}"

@@ -77,6 +77,30 @@ run_cli() {
     [[ "$output" == *"Windows 11 Pro"* ]]
 }
 
+@test "cli: windows dry-run plans the unattended install steps" {
+    run run_cli windows --image-name "Windows 11 Pro" --lang en-us --dry-run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"partition"* ]]
+    [[ "$output" == *"installer partition"* ]]
+    [[ "$output" == *"autounattend.xml"* ]]
+    [[ "$output" == *"one-shot boot"* ]]
+}
+
+@test "cli: windows dry-run accepts net and driver options" {
+    local driver="${BATS_TEST_TMPDIR}/netkvm.inf"
+    printf '[Version]\n' >"${driver}"
+    run run_cli windows --image-name "Windows 11 Pro" --lang en-us \
+        --rdp-port 3390 --allow-ping --add-driver "${driver}" --dry-run
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"one-shot boot"* ]]
+}
+
+@test "cli: windows stages an executable network.sh" {
+    run run_cli windows --image-name "Windows 11 Pro" --lang en-us --dry-run
+    [ "$status" -eq 0 ]
+    [ -x "${RS_WORK_DIR}/runtime-stage/network.sh" ]
+}
+
 @test "cli: windows requires --image-name" {
     run run_cli windows --dry-run
     [ "$status" -ne 0 ]

@@ -11,9 +11,9 @@
 set -u
 
 initrd_network_up() {
-    if [ -x /network.sh ]; then
+    if [ -f /network.sh ]; then
         log "applying injected network configuration"
-        /network.sh && return 0
+        sh /network.sh && return 0
         warn "injected network config failed; falling back to DHCP"
     fi
 

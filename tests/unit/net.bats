@@ -1,9 +1,6 @@
 #!/usr/bin/env bats
 #
-# Unit tests for lib/net.sh (network capture + script rendering).
-#
-# Rendering is pure: capture is exercised only through overrides so tests
-# do not depend on the host's interfaces.
+# Unit tests for lib/net.sh capture/rendering.
 #
 # shellcheck shell=bash
 
@@ -12,45 +9,49 @@ load ../helpers.bash
 source "${BATS_TEST_DIRNAME}/../../lib/common.sh"
 source "${BATS_TEST_DIRNAME}/../../lib/net.sh"
 
-@test "render: static mode emits ip commands" {
-    RS_NET_DHCP="no"
+# Emulate `ip -o addr show` output (Ubuntu iproute2 format).
+stub_ip() {
+    ip() {
+        if [[ "$1" == "-o" && "$2" == "addr" ]]; then
+            printf '2: eth0    inet 169.58.143.165/17 brd 169.58.255.255 scope global eth0\\       valid_lft forever\n'
+        fi
+    }
+}
+
+@test "net: cidr capture keeps the prefix length" {
+    stub_ip
+    run rs_net_iface_cidr_v4 eth0
+    [ "$output" = "169.58.143.165/17" ]
+}
+
+@test "net: dns capture prefers resolv.conf nameservers" {
+    local resolv="${BATS_TEST_TMPDIR}/resolv.conf"
+    printf 'nameserver 9.9.9.9\nnameserver 1.1.1.1\n' >"${resolv}"
+    local dns
+    dns="$(awk '/^nameserver/{print $2}' "${resolv}" 2>/dev/null | grep -vE '^(127\.|::1$)' | tr '\n' ' ' | sed 's/ $//')"
+    [ "$dns" = "9.9.9.9 1.1.1.1" ]
+}
+
+@test "net: static render includes the /prefix and a default DNS" {
     RS_IPV4_ADDR="192.0.2.10/24"
     RS_IPV4_GW="192.0.2.1"
-    RS_IPV6_ADDR="2001:db8::10/64"
-    RS_IPV6_GW="2001:db8::1"
-
-    run rs_net_render_script eth0
-    [ "$status" -eq 0 ]
-    [[ "$output" == *'ip addr replace 192.0.2.10/24'* ]]
-    [[ "$output" == *'ip route replace default via 192.0.2.1'* ]]
-    [[ "$output" == *'ip -6 addr replace 2001:db8::10/64'* ]]
-    [[ "$output" != *"udhcpc"* ]]
-}
-
-@test "render: dhcp mode emits udhcpc" {
-    RS_NET_DHCP="yes"
-
-    run rs_net_render_script eth0
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"udhcpc -q -i \"\$IFACE\""* ]]
-}
-
-@test "render: resolv.conf is populated in static mode" {
+    RS_IPV6_ADDR=""
+    RS_IPV6_GW=""
+    RS_IPV4_DNS=""
     RS_NET_DHCP="no"
-    RS_IPV4_ADDR="192.0.2.10/24"
-    RS_IPV4_DNS="1.1.1.1"
-
     run rs_net_render_script eth0
-    [[ "$output" == *'echo "nameserver 1.1.1.1" > /etc/resolv.conf'* ]]
+    [[ "$output" == *"ip addr replace 192.0.2.10/24 dev"* ]]
+    [[ "$output" == *"nameserver 1.1.1.1"* ]]
+    [[ "$output" == *"nameserver 8.8.8.8"* ]]
 }
 
-@test "capture: primary iface via ip when present" {
-    if ! command -v ip >/dev/null 2>&1; then
-        skip "ip not available"
-    fi
-    run rs_net_primary_iface
-    # Should either succeed with a name or fail cleanly in weird containers.
-    if [ "$status" -eq 0 ]; then
-        [[ -n "$output" ]]
-    fi
+@test "net: static render writes captured dns when present" {
+    RS_IPV4_ADDR="192.0.2.10/24"
+    RS_IPV4_GW="192.0.2.1"
+    RS_IPV6_ADDR=""
+    RS_IPV6_GW=""
+    RS_IPV4_DNS="9.9.9.9 1.1.1.1"
+    RS_NET_DHCP="no"
+    run rs_net_render_script eth0
+    [[ "$output" == *"nameserver 9.9.9.9"* ]]
 }

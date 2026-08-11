@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  windows-unattend.xml — autounattend.xml template rendered by the restage
+  Windows runtime (runtime/windows.sh) right before the machine boots into
+  Windows Setup.
+
+  Placeholders (substituted with sed at render time):
+    %arch%                     amd64 | x86 | arm64 (wim Architecture)
+    %locale%                   language tag, e.g. en-us
+    %disk_id%                  disk number in the Windows disk layout (0)
+    %installto_partitionid%    partition to install Windows onto
+                               (3 for GPT/EFI, 1 for BIOS/MBR)
+    %image_name%               edition name inside install.wim, e.g.
+                               "Windows 11 Pro"
+    %user_username%            local administrator account
+    %user_password%            its password (PlainText)
+    %driver_paths%             zero or more PathAndCredentials entries
+                               (injected into offlineServicing)
+
+  Conditional blocks are delimited by RS:... XML comments; windows.sh deletes
+  a whole block when the matching option is empty (product key, drivers).
+
+  The Windows unattend schema is published by Microsoft; this file is an
+  independent reimplementation for restage.
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend"
+          xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+    <settings pass="windowsPE">
+        <component name="Microsoft-Windows-Setup"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <EnableFirewall>false</EnableFirewall>
+            <UserData>
+                <AcceptEula>true</AcceptEula>
+                <!--RS:KEY_BLOCK-->
+                <ProductKey>
+                    <Key>%key%</Key>
+                </ProductKey>
+                <!--/RS:KEY_BLOCK-->
+            </UserData>
+            <ImageInstall>
+                <OSImage>
+                    <InstallFrom>
+                        <MetaData wcm:action="add">
+                            <Key>/IMAGE/NAME</Key>
+                            <Value>%image_name%</Value>
+                        </MetaData>
+                    </InstallFrom>
+                    <InstallTo>
+                        <DiskID>%disk_id%</DiskID>
+                        <PartitionID>%installto_partitionid%</PartitionID>
+                    </InstallTo>
+                </OSImage>
+            </ImageInstall>
+        </component>
+        <component name="Microsoft-Windows-International-Core-WinPE"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <InputLocale>%locale%</InputLocale>
+            <SystemLocale>%locale%</SystemLocale>
+            <UILanguage>%locale%</UILanguage>
+            <UserLocale>%locale%</UserLocale>
+        </component>
+    </settings>
+
+    <!--RS:DRIVER_BLOCK-->
+    <settings pass="offlineServicing">
+        <component name="Microsoft-Windows-PnpCustomizationsNonWinPE"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <DriverPaths>
+%driver_paths%
+            </DriverPaths>
+        </component>
+    </settings>
+    <!--/RS:DRIVER_BLOCK-->
+
+    <settings pass="specialize">
+        <component name="Microsoft-Windows-Deployment"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <RunSynchronous>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <Path>powercfg /setacvalueindex SCHEME_BALANCED SUB_VIDEO VIDEOIDLE 0</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <Path>reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager /v ShippedWithReserves /t REG_DWORD /d 0 /f</Path>
+                </RunSynchronousCommand>
+            </RunSynchronous>
+        </component>
+        <component name="Microsoft-Windows-TerminalServices-LocalSessionManager"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <fDenyTSConnections>false</fDenyTSConnections>
+        </component>
+        <component name="Networking-MPSSVC-Svc"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <FirewallGroups>
+                <FirewallGroup wcm:action="add" wcm:keyValue="RemoteDesktop">
+                    <Active>true</Active>
+                    <Group>@FirewallAPI.dll,-28752</Group>
+                    <Profile>all</Profile>
+                </FirewallGroup>
+            </FirewallGroups>
+        </component>
+        <component name="Microsoft-Windows-powercpl"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <PreferredPlan>8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c</PreferredPlan>
+        </component>
+        <component name="Microsoft-Windows-ErrorReportingCore"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <DisableWER>1</DisableWER>
+        </component>
+    </settings>
+
+    <settings pass="oobeSystem">
+        <component name="Microsoft-Windows-Shell-Setup"
+                   processorArchitecture="%arch%"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS"
+                   xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <UserAccounts>
+                <AdministratorPassword>
+                    <Value>%user_password%</Value>
+                    <PlainText>true</PlainText>
+                </AdministratorPassword>
+                <LocalAccounts>
+                    <LocalAccount wcm:action="add">
+                        <Name>%user_username%</Name>
+                        <Group>Administrators</Group>
+                        <Password>
+                            <Value>%user_password%</Value>
+                            <PlainText>true</PlainText>
+                        </Password>
+                    </LocalAccount>
+                </LocalAccounts>
+            </UserAccounts>
+            <AutoLogon>
+                <Password>
+                    <Value>%user_password%</Value>
+                    <PlainText>true</PlainText>
+                </Password>
+                <Enabled>true</Enabled>
+                <LogonCount>2</LogonCount>
+                <Username>%user_username%</Username>
+            </AutoLogon>
+            <OOBE>
+                <HideEULAPage>true</HideEULAPage>
+                <HideLocalAccountScreen>true</HideLocalAccountScreen>
+                <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+                <SkipMachineOOBE>true</SkipMachineOOBE>
+                <SkipUserOOBE>true</SkipUserOOBE>
+            </OOBE>
+        </component>
+    </settings>
+</unattend>
