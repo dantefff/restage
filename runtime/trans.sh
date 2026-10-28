@@ -224,6 +224,10 @@ do_dd() {
 do_linux() {
     _url=${RESTAGE_IMAGE:-}
     [ -z "$_url" ] && die "linux install requires RESTAGE_IMAGE"
+    if ! command -v curl >/dev/null 2>&1; then
+        apk add --no-cache curl >/dev/null 2>&1 || \
+            die "curl unavailable and could not be installed (is apk networking working?)"
+    fi
     need_cmd curl
     need_cmd dd
     log "installing ${RESTAGE_OS:-linux} ${RESTAGE_OS_VERSION:-}"
