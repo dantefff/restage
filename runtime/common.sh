@@ -100,13 +100,26 @@ confirm() {
 fetch() {
     _url=$1
     _dest=$2
-    if command -v wget >/dev/null 2>&1; then
-        wget -q -O "$_dest" "$_url" && return 0
-    fi
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "$_dest" "$_url" && return 0
-    fi
-    die "no downloader available (need wget or curl)"
+    _retries=10
+    _count=0
+    _command=""
+
+    while [ $_count -lt $_retries ]; do
+        if command -v wget >/dev/null 2>&1; then
+            wget -O "$_dest" "$_url" && return 0
+            _command="wget -O ${_dest} ${_url}"
+        fi
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL -o "$_dest" "$_url" && return 0
+            _command="curl -fsSL -o  ${_dest} ${_url}"
+        fi
+
+        echo "[fetch] Download failed retrying in a second..."
+        sleep 1
+        _count=$((_count + 1))
+    done
+
+    die "Unable to download. Command was ${_command}"
 }
 
 # Download a URL to stdout. Usage: fetch_stdout <url>
