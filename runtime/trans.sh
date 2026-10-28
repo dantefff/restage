@@ -262,6 +262,7 @@ do_linux() {
 fixup_root() {
     _part=$(find_root_partition "$disk")
     log "root partition: $_part"
+    mkdir -p /os
     mount "$_part" /os || die "could not mount $_part at /os"
     mount -t proc proc /os/proc 2>/dev/null || true
     mount -t sysfs sysfs /os/sys 2>/dev/null || true
