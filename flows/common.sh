@@ -104,6 +104,7 @@ rs_runtime_stage() {
         printf 'RESTAGE_WEB_PORT=%s\n' "$(rs_sh_quote "${RS_WEB_PORT}")"
         printf 'RESTAGE_HOLD=%s\n' "$(rs_sh_quote "${RS_HOLD}")"
         printf 'RESTAGE_NET_IFACE=%s\n' "$(rs_sh_quote "${RS_NET_IFACE}")"
+        printf 'RESTAGE_NET_MAC=%s\n' "$(rs_sh_quote "${RS_NET_MAC}")"
         printf 'RESTAGE_IPV4=%s\n' "$(rs_sh_quote "${RS_IPV4_ADDR}")"
         printf 'RESTAGE_IPV6=%s\n' "$(rs_sh_quote "${RS_IPV6_ADDR}")"
         printf 'RESTAGE_GW4=%s\n' "$(rs_sh_quote "${RS_IPV4_GW}")"
@@ -176,8 +177,10 @@ rs_flow_schedule() {
     rs_log_info "  username: ${RS_USERNAME}"
     if [[ -n "${RS_PASSWORD}" ]]; then
         rs_log_info "  password: ${RS_PASSWORD}"
+    elif [[ -n "${RS_SSH_KEY}" ]]; then
+        rs_log_info "  password: (none; SSH key authentication)"
     else
-        rs_log_info "  password: (a random one was generated for you)"
+        rs_log_info "  password: (none)"
     fi
 
     if rs_is_yes "${RS_HOLD:-0}" || [[ "${mode}" == "alpine" ]]; then

@@ -174,9 +174,12 @@ rs_args_validate_common() {
     if [[ "${RS_NET_DHCP:-auto}" != "auto" ]]; then
         reason="$(rs_validate_bool "${RS_NET_DHCP}" "net-dhcp")" || rs_die "${reason}"
     fi
-    # A password is required unless an SSH key was provided or one will be
-    # generated interactively.
-    if [[ -z "${RS_PASSWORD}" && -z "${RS_SSH_KEY}" && "${RS_HOLD}" == "2" ]]; then
-        rs_log_warn "no password or SSH key set; one will be generated and shown before reboot"
+    # No password and no key would leave the installed system unreachable:
+    # sshd ships with password auth and root login disabled. Generate a
+    # password and show it (the help promises this) instead of installing a
+    # system nobody can log into.
+    if [[ -z "${RS_PASSWORD}" && -z "${RS_SSH_KEY}" ]]; then
+        RS_PASSWORD="$(rs_random_hex 8)"
+        rs_log_warn "no password or SSH key set; generated a random root password"
     fi
 }

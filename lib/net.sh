@@ -16,6 +16,7 @@
 rs_import lib/common.sh
 
 RS_NET_IFACE=""
+RS_NET_MAC=""
 RS_IPV4_ADDR=""
 RS_IPV4_GW=""
 RS_IPV6_ADDR=""
@@ -33,6 +34,18 @@ rs_net_primary_iface() {
         [[ -n "${iface}" ]] && { printf '%s\n' "${iface}"; return 0; }
     fi
     return 1
+}
+
+# Hardware address of $1 (lowercase), or nothing if unavailable. The target
+# system may name the same NIC differently (eth0 vs ens18), so the installed
+# network config is matched by MAC rather than by interface name.
+rs_net_iface_mac() {
+    local mac
+    mac="$(cat "/sys/class/net/${1}/address" 2>/dev/null)" || return 1
+    mac="${mac,,}"
+    [[ "${mac}" =~ ^([0-9a-f]{2}:){5}[0-9a-f]{2}$ ]] || return 1
+    [[ "${mac}" == "00:00:00:00:00:00" ]] && return 1
+    printf '%s\n' "${mac}"
 }
 
 # CIDR of the primary address on $1 (e.g. 192.0.2.10/24).
@@ -77,12 +90,13 @@ rs_net_capture() {
         return 0
     }
     RS_NET_IFACE="${iface}"
+    RS_NET_MAC="$(rs_net_iface_mac "${iface}")" || RS_NET_MAC=""
     RS_IPV4_ADDR="$(rs_net_iface_cidr_v4 "${iface}")"
     RS_IPV6_ADDR="$(rs_net_iface_cidr_v6 "${iface}")"
     RS_IPV4_GW="$(rs_net_gateway_v4 "${iface}")"
     RS_IPV6_GW="$(rs_net_gateway_v6 "${iface}")"
     RS_IPV4_DNS="$(rs_net_dns_v4 "${iface}")"
-    rs_log_debug "net: iface=${RS_NET_IFACE} v4=${RS_IPV4_ADDR:-dhcp} gw4=${RS_IPV4_GW:-none} v6=${RS_IPV6_ADDR:-none} gw6=${RS_IPV6_GW:-none} dns=${RS_IPV4_DNS:-none}"
+    rs_log_debug "net: iface=${RS_NET_IFACE} mac=${RS_NET_MAC:-none} v4=${RS_IPV4_ADDR:-dhcp} gw4=${RS_IPV4_GW:-none} v6=${RS_IPV6_ADDR:-none} gw6=${RS_IPV6_GW:-none} dns=${RS_IPV4_DNS:-none}"
 }
 
 # Decide static vs dhcp: RS_NET_DHCP in {auto, yes, no}.

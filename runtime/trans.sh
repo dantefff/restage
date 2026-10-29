@@ -94,12 +94,12 @@ start_sshd() {
 
 setup_root_auth() {
     if [ -n "${RESTAGE_PASSWORD:-}" ]; then
-        echo "root:${RESTAGE_PASSWORD}" | chpasswd 2>/dev/null && \
+        printf 'root:%s\n' "$RESTAGE_PASSWORD" | chpasswd 2>/dev/null && \
             log "root password set" || warn "could not set root password"
     fi
     if [ -n "${RESTAGE_SSH_KEY:-}" ]; then
         mkdir -p /root/.ssh
-        echo "$RESTAGE_SSH_KEY" >/root/.ssh/authorized_keys
+        printf '%s\n' "$RESTAGE_SSH_KEY" >/root/.ssh/authorized_keys
         chmod 700 /root/.ssh
         chmod 600 /root/.ssh/authorized_keys
         log "root SSH key installed"
@@ -333,16 +333,12 @@ fixup_root() {
         log "fstab root UUID pinned to $_cur"
     fi
 
-    [ -n "${RESTAGE_PASSWORD:-}" ] && \
-        chroot /os sh -c "echo 'root:${RESTAGE_PASSWORD}' | chpasswd" 2>/dev/null || \
-        warn "could not set root password on target"
-    [ -n "${RESTAGE_SSH_KEY:-}" ] && {
-        mkdir -p /os/root/.ssh
-        echo "$RESTAGE_SSH_KEY" >/os/root/.ssh/authorized_keys
-        chmod 700 /os/root/.ssh
-        chmod 600 /os/root/.ssh/authorized_keys
-        log "root SSH key installed on target"
-    }
+    set_target_credentials
+    write_sshd_config
+    ensure_target_ssh
+    configure_target_network
+    write_cloud_init_override
+    target_restorecon
     [ -n "${RESTAGE_OS:-}" ] && echo "$RESTAGE_OS" >/os/etc/hostname 2>/dev/null || true
 
     if [ -x /os/sbin/grub-install ]; then
@@ -354,33 +350,386 @@ fixup_root() {
     else
         warn "no grub in the image; bootloader NOT installed"
     fi
-
-    write_netplan
 }
 
-write_netplan() {
-    [ "$RESTAGE_NET_MODE" = "static" ] || return 0
-    [ -n "${RESTAGE_IPV4:-}" ] || return 0
-    mkdir -p /os/etc/netplan
+# Write a public key into the authorized_keys of the account whose home is $1
+# (a path inside /os).
+install_authorized_key() {
+    _home=$1
+    mkdir -p "$_home/.ssh"
+    printf '%s\n' "$RESTAGE_SSH_KEY" >"$_home/.ssh/authorized_keys"
+    chmod 700 "$_home/.ssh"
+    chmod 600 "$_home/.ssh/authorized_keys"
+}
+
+# Apply --password / --ssh-key / --username to the installed system.
+# Root always keeps working (rescue path); --username additionally creates
+# and configures that account. Passwords are fed through stdin so shell
+# metacharacters in them are never interpreted.
+set_target_credentials() {
+    _user=${RESTAGE_USERNAME:-root}
+    _pass=${RESTAGE_PASSWORD:-}
+    _key=${RESTAGE_SSH_KEY:-}
+
+    if [ -n "$_pass" ]; then
+        printf 'root:%s\n' "$_pass" | chroot /os chpasswd 2>/dev/null && \
+            log "root password set on target" || warn "could not set root password on target"
+    fi
+    if [ -n "$_key" ]; then
+        install_authorized_key /os/root
+        log "root SSH key installed on target"
+    fi
+
+    [ "$_user" = "root" ] && return 0
+
+    if ! chroot /os id -u "$_user" >/dev/null 2>&1; then
+        _shell=/bin/sh
+        [ -x /os/bin/bash ] && _shell=/bin/bash
+        if chroot /os useradd -m -s "$_shell" "$_user" >/dev/null 2>&1; then
+            log "created target user $_user"
+        else
+            warn "could not create target user $_user"
+        fi
+    fi
+    chroot /os id -u "$_user" >/dev/null 2>&1 || return 0
+
+    if grep -q '^sudo:' /os/etc/group 2>/dev/null; then
+        chroot /os usermod -aG sudo "$_user" >/dev/null 2>&1 || true
+    elif grep -q '^wheel:' /os/etc/group 2>/dev/null; then
+        chroot /os usermod -aG wheel "$_user" >/dev/null 2>&1 || true
+    fi
+    # A key-only account has no password to type for sudo, so grant it
+    # passwordless sudo (what cloud-init does for its default user).
+    if [ -d /os/etc/sudoers.d ]; then
+        if [ -n "$_pass" ]; then
+            printf '%s ALL=(ALL:ALL) ALL\n' "$_user" >"/os/etc/sudoers.d/90-restage-$_user"
+        else
+            printf '%s ALL=(ALL:ALL) NOPASSWD:ALL\n' "$_user" >"/os/etc/sudoers.d/90-restage-$_user"
+        fi
+        chmod 440 "/os/etc/sudoers.d/90-restage-$_user" 2>/dev/null || true
+    fi
+    if [ -n "$_pass" ]; then
+        printf '%s:%s\n' "$_user" "$_pass" | chroot /os chpasswd 2>/dev/null && \
+            log "password set for $_user" || warn "could not set password for $_user"
+    fi
+    if [ -n "$_key" ]; then
+        install_authorized_key "/os/home/$_user"
+        chroot /os chown -R "$_user" "/home/$_user/.ssh" 2>/dev/null || true
+        log "SSH key installed for $_user"
+    fi
+}
+
+# Write the sshd drop-in. Cloud images ship PasswordAuthentication no and
+# root logins disabled, so a freshly-installed system has no usable SSH even
+# though sshd is enabled.
+write_sshd_config() {
+    if [ ! -f /os/etc/ssh/sshd_config ]; then
+        warn "no sshd_config on target; skipping SSH server configuration"
+        return 0
+    fi
+    _pass=${RESTAGE_PASSWORD:-}
+    _port=${RESTAGE_SSH_PORT:-22}
+    _dir=/os/etc/ssh/sshd_config.d
+    mkdir -p "$_dir"
+    {
+        printf '# generated by restage\n'
+        if [ -n "$_pass" ]; then
+            printf 'PermitRootLogin yes\n'
+            printf 'PasswordAuthentication yes\n'
+            printf 'KbdInteractiveAuthentication yes\n'
+        else
+            printf 'PermitRootLogin prohibit-password\n'
+            printf 'PasswordAuthentication no\n'
+            printf 'KbdInteractiveAuthentication no\n'
+        fi
+        printf 'PubkeyAuthentication yes\n'
+        printf 'UsePAM yes\n'
+        printf 'Port %s\n' "$_port"
+    } >"$_dir/00-restage.conf"
+    chmod 600 "$_dir/00-restage.conf" 2>/dev/null || true
+
+    # Images without an Include for sshd_config.d need the directives in the
+    # main file. sshd keeps the FIRST value it reads for most options, so
+    # they must be prepended, not appended.
+    if ! grep -qE '^[[:space:]]*Include[[:space:]]+.*sshd_config\.d' /os/etc/ssh/sshd_config 2>/dev/null; then
+        _tmp=/os/etc/ssh/sshd_config.restage
+        {
+            printf '# restage: prepended because sshd_config has no Include\n'
+            cat "$_dir/00-restage.conf"
+            printf '\n'
+            cat /os/etc/ssh/sshd_config
+        } >"$_tmp" && mv "$_tmp" /os/etc/ssh/sshd_config
+        chmod 644 /os/etc/ssh/sshd_config 2>/dev/null || true
+    fi
+    log "target sshd configured (port $_port, password auth $([ -n "$_pass" ] && printf yes || printf no))"
+}
+
+# Cloud images ship without SSH host keys: cloud-init deletes them and
+# regenerates on first boot. If cloud-init does not run (no metadata
+# service), sshd -t fails and the service never starts. Generate them here
+# and make sure the service is enabled.
+ensure_target_ssh() {
+    if [ ! -e /os/etc/ssh/ssh_host_ed25519_key ] && [ ! -e /os/etc/ssh/ssh_host_rsa_key ]; then
+        if chroot /os ssh-keygen -A >/dev/null 2>&1; then
+            log "generated SSH host keys on target"
+        else
+            warn "could not generate SSH host keys on target"
+        fi
+    fi
+
+    _unit=""
+    for _sock in ssh.socket sshd.socket; do
+        if [ -L "/os/etc/systemd/system/sockets.target.wants/$_sock" ]; then
+            log "target ssh socket already enabled ($_sock)"
+            return 0
+        fi
+    done
+    for _u in ssh.service sshd.service; do
+        if [ -f "/os/lib/systemd/system/$_u" ] || [ -f "/os/usr/lib/systemd/system/$_u" ]; then
+            _unit=$_u
+            break
+        fi
+    done
+    if [ -n "$_unit" ]; then
+        _wants=/os/etc/systemd/system/multi-user.target.wants
+        mkdir -p "$_wants"
+        _src=/lib/systemd/system/$_unit
+        [ -f "/os$_src" ] || _src=/usr/lib/systemd/system/$_unit
+        ln -sf "$_src" "$_wants/$_unit" 2>/dev/null || true
+        log "target ssh service enabled ($_unit)"
+    elif [ -x /os/etc/init.d/ssh ]; then
+        for _rc in rc2.d rc3.d rc5.d; do
+            mkdir -p "/os/etc/$_rc"
+            ln -sf ../init.d/ssh "/os/etc/$_rc/S01ssh" 2>/dev/null || true
+        done
+        log "target ssh enabled (sysv)"
+    else
+        warn "no ssh service found on target"
+    fi
+}
+
+# Bring up networking on the installed system. Cloud images have an empty
+# /etc/netplan and rely on cloud-init metadata; with no metadata service
+# (restage writes a plain cloud image) they boot with no network at all.
+# Match the NIC by MAC because predictable names can differ from the system
+# that was running before the reinstall.
+configure_target_network() {
+    if [ -e /os/usr/lib/systemd/system-generators/netplan ] || \
+        [ -e /os/lib/systemd/system-generators/netplan ] || \
+        [ -x /os/usr/sbin/netplan ] || [ -x /os/sbin/netplan ]; then
+        write_netplan_config
+    elif [ -d /os/etc/NetworkManager ]; then
+        write_nm_config
+    elif [ -d /os/etc/sysconfig/network-scripts ]; then
+        write_ifcfg_config
+    else
+        warn "no supported network configuration system found on target"
+    fi
+}
+
+# Interface identity for the installed config: captured MAC, else the live
+# MAC of the installer NIC (same hardware), else nothing.
+target_net_mac() {
+    _mac=${RESTAGE_NET_MAC:-}
+    if [ -z "$_mac" ] && [ -n "${RESTAGE_NET_IFACE:-}" ]; then
+        _mac=$(cat "/sys/class/net/${RESTAGE_NET_IFACE}/address" 2>/dev/null) || _mac=""
+    fi
+    if [ -z "$_mac" ]; then
+        # Capture failed before reboot: ask the installer's routing table.
+        _if=$(ip route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n1)
+        [ -n "$_if" ] && _mac=$(cat "/sys/class/net/$_if/address" 2>/dev/null)
+    fi
+    if [ -z "$_mac" ]; then
+        for _d in /sys/class/net/*; do
+            _n=${_d##*/}
+            case "$_n" in
+                lo | docker* | br-* | veth* | virbr* | lxc* | tap* | tun*) continue ;;
+            esac
+            _mac=$(cat "$_d/address" 2>/dev/null) || continue
+            [ -n "$_mac" ] && break
+        done
+    fi
+    _mac=$(printf '%s' "$_mac" | tr 'A-Z' 'a-z')
+    case "$_mac" in
+        00:00:00:00:00:00) _mac="" ;;
+    esac
+    printf '%s\n' "$_mac"
+}
+
+net_is_static() {
+    [ "${RESTAGE_NET_MODE:-dhcp}" = "static" ] && [ -n "${RESTAGE_IPV4:-}" ]
+}
+
+write_netplan_config() {
+    _dir=/os/etc/netplan
+    mkdir -p "$_dir"
+    # cloud-init's fallback DHCP file would define the same NIC twice and
+    # can override what we write below.
+    for _f in "$_dir"/*cloud-init*.yaml; do
+        if [ -e "$_f" ]; then
+            rm -f "$_f" && log "removed stale cloud-init netplan ${_f##*/}"
+        fi
+    done
+    _ifname=${RESTAGE_NET_IFACE:-}
+    _mac=$(target_net_mac)
+    {
+        printf 'network:\n'
+        printf '  version: 2\n'
+        if [ -f /os/lib/systemd/system/systemd-networkd.service ] || \
+            [ -f /os/usr/lib/systemd/system/systemd-networkd.service ]; then
+            printf '  renderer: networkd\n'
+        fi
+        printf '  ethernets:\n'
+        if [ -n "$_mac" ]; then
+            printf '    restage0:\n'
+            printf '      match:\n'
+            printf '        macaddress: "%s"\n' "$_mac"
+        elif [ -n "$_ifname" ]; then
+            printf '    %s:\n' "$_ifname"
+        else
+            # Last resort: match any predictable ethernet name (eth0, ens18,
+            # enp1s0, eno1...).
+            printf '    restage0:\n'
+            printf '      match:\n'
+            printf '        name: "e*"\n'
+        fi
+        printf '      optional: true\n'
+        if net_is_static; then
+            printf '      dhcp4: false\n'
+            printf '      dhcp6: false\n'
+            printf '      addresses:\n'
+            printf '        - %s\n' "$RESTAGE_IPV4"
+            [ -n "${RESTAGE_IPV6:-}" ] && printf '        - %s\n' "$RESTAGE_IPV6"
+            if [ -n "${RESTAGE_GW4:-}" ] || [ -n "${RESTAGE_GW6:-}" ]; then
+                printf '      routes:\n'
+                [ -n "${RESTAGE_GW4:-}" ] && \
+                    printf '        - to: default\n          via: %s\n' "$RESTAGE_GW4"
+                [ -n "${RESTAGE_GW6:-}" ] && \
+                    printf '        - to: "::/0"\n          via: %s\n' "$RESTAGE_GW6"
+            fi
+        else
+            printf '      dhcp4: true\n'
+            printf '      dhcp6: true\n'
+        fi
+        if [ -n "${RESTAGE_DNS1:-}" ]; then
+            printf '      nameservers:\n'
+            printf '        addresses:\n'
+            printf '          - %s\n' "$RESTAGE_DNS1"
+        fi
+    } >"$_dir/99-restage.yaml"
+    chmod 600 "$_dir/99-restage.yaml" 2>/dev/null || true
+    # netplan renders to networkd here, so make sure networkd actually runs.
+    if [ -f /os/lib/systemd/system/systemd-networkd.service ] || \
+        [ -f /os/usr/lib/systemd/system/systemd-networkd.service ]; then
+        _wants=/os/etc/systemd/system/multi-user.target.wants
+        mkdir -p "$_wants"
+        _src=/lib/systemd/system/systemd-networkd.service
+        [ -f "/os$_src" ] || _src=/usr/lib/systemd/system/systemd-networkd.service
+        ln -sf "$_src" "$_wants/systemd-networkd.service" 2>/dev/null || true
+    fi
+    log "netplan written for ${_ifname:-any ethernet} (${RESTAGE_NET_MODE:-dhcp})"
+}
+
+# NetworkManager keyfile (RHEL family / any NM system). No interface-name:
+# a profile without one applies to the ethernet device regardless of how the
+# kernel named it after the reinstall.
+write_nm_config() {
+    _dir=/os/etc/NetworkManager/system-connections
+    mkdir -p "$_dir"
+    # Replace any profile cloud-init generated at first boot.
+    rm -f "$_dir"/cloud-init*.nmconnection 2>/dev/null || true
+    {
+        printf '[connection]\n'
+        printf 'id=restage\n'
+        printf 'type=ethernet\n'
+        printf 'autoconnect=true\n'
+        printf 'autoconnect-priority=999\n'
+        printf '\n[ipv4]\n'
+        if net_is_static; then
+            printf 'method=manual\n'
+            if [ -n "${RESTAGE_GW4:-}" ]; then
+                printf 'address1=%s,%s\n' "$RESTAGE_IPV4" "$RESTAGE_GW4"
+            else
+                printf 'address1=%s\n' "$RESTAGE_IPV4"
+            fi
+        else
+            printf 'method=auto\n'
+        fi
+        [ -n "${RESTAGE_DNS1:-}" ] && printf 'dns=%s;\n' "$RESTAGE_DNS1"
+        printf '\n[ipv6]\n'
+        if net_is_static && [ -n "${RESTAGE_IPV6:-}" ]; then
+            printf 'method=manual\n'
+            if [ -n "${RESTAGE_GW6:-}" ]; then
+                printf 'address1=%s,%s\n' "$RESTAGE_IPV6" "$RESTAGE_GW6"
+            else
+                printf 'address1=%s\n' "$RESTAGE_IPV6"
+            fi
+        else
+            printf 'method=auto\n'
+        fi
+        printf '\n[proxy]\n'
+    } >"$_dir/restage.nmconnection"
+    chmod 600 "$_dir/restage.nmconnection" 2>/dev/null || true
+    log "NetworkManager profile written (${RESTAGE_NET_MODE:-dhcp})"
+}
+
+# Legacy sysconfig/ifcfg fallback.
+write_ifcfg_config() {
+    _dir=/os/etc/sysconfig/network-scripts
+    mkdir -p "$_dir"
     _ifname=${RESTAGE_NET_IFACE:-eth0}
     {
-        echo "network:"
-        echo "  version: 2"
-        echo "  ethernets:"
-        echo "    $_ifname:"
-        echo "      dhcp4: false"
-        echo "      addresses:"
-        echo "        - ${RESTAGE_IPV4}"
-        if [ -n "${RESTAGE_GW4:-}" ]; then
-            echo "      routes:"
-            echo "        - to: default"
-            echo "          via: ${RESTAGE_GW4}"
+        printf 'NAME=restage\n'
+        printf 'DEVICE=%s\n' "$_ifname"
+        printf 'ONBOOT=yes\n'
+        printf 'NM_CONTROLLED=yes\n'
+        if net_is_static; then
+            printf 'BOOTPROTO=none\n'
+            printf 'IPADDR=%s\n' "${RESTAGE_IPV4%/*}"
+            printf 'PREFIX=%s\n' "${RESTAGE_IPV4#*/}"
+            [ -n "${RESTAGE_GW4:-}" ] && printf 'GATEWAY=%s\n' "$RESTAGE_GW4"
+            [ -n "${RESTAGE_DNS1:-}" ] && printf 'DNS1=%s\n' "$RESTAGE_DNS1"
+            [ -n "${RESTAGE_IPV6:-}" ] && printf 'IPV6ADDR=%s\n' "$RESTAGE_IPV6"
+            [ -n "${RESTAGE_GW6:-}" ] && printf 'IPV6_DEFAULTGW=%s\n' "$RESTAGE_GW6"
+        else
+            printf 'BOOTPROTO=dhcp\n'
         fi
-        if [ -n "${RESTAGE_IPV6:-}" ]; then
-            echo "        - ${RESTAGE_IPV6}"
+    } >"$_dir/ifcfg-restage"
+    chmod 600 "$_dir/ifcfg-restage" 2>/dev/null || true
+    log "ifcfg written for $_ifname (${RESTAGE_NET_MODE:-dhcp})"
+}
+
+# Stop cloud-init from overriding what we wrote on first boot: no network
+# regeneration, no forced command on root's keys, no host-key deletion.
+write_cloud_init_override() {
+    [ -d /os/etc/cloud/cloud.cfg.d ] || return 0
+    {
+        printf '# generated by restage\n'
+        printf 'disable_root: false\n'
+        printf 'ssh_deletekeys: false\n'
+        if [ -n "${RESTAGE_PASSWORD:-}" ]; then
+            printf 'ssh_pwauth: true\n'
+        else
+            printf 'ssh_pwauth: false\n'
         fi
-    } >/os/etc/netplan/99-restage.yaml
-    log "static netplan written for $_ifname"
+        printf 'network:\n'
+        printf '  config: disabled\n'
+    } >/os/etc/cloud/cloud.cfg.d/99-restage.cfg
+    log "cloud-init overrides written"
+}
+
+# Files created from the installer have no SELinux label. On enforcing
+# targets (RHEL family) sshd/networkd can be denied reading them, so relabel
+# the directories we touched when the target provides restorecon.
+target_restorecon() {
+    if [ ! -x /os/usr/sbin/restorecon ] && [ ! -x /os/sbin/restorecon ]; then
+        return 0
+    fi
+    for _p in /etc/ssh /etc/netplan /etc/NetworkManager/system-connections /etc/cloud; do
+        [ -e "/os$_p" ] || continue
+        chroot /os restorecon -R "$_p" >/dev/null 2>&1 || true
+    done
+    log "SELinux labels restored on generated config"
 }
 
 do_windows() {

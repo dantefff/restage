@@ -44,7 +44,7 @@ rs_os_load_catalog
     [ "$RS_OS_INSTALLER" = "cloud" ]
     [ "$RS_OS_VERSION" = "12" ]
     [[ "$RS_OS_IMAGE" == *"/bookworm/"* ]]
-    [[ "$RS_OS_IMAGE" == *"debian-12-genericcloud-amd64.qcow2"* ]]
+    [[ "$RS_OS_IMAGE" == *"debian-12-generic-amd64.qcow2"* ]]
     # The boot kernel must be the pinned Alpine version, not Debian 12.
     [[ "$RS_OS_BOOT_KERNEL" == *"v3.22"* ]]
 }

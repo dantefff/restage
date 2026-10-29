@@ -24,6 +24,19 @@ stub_ip() {
     [ "$output" = "169.58.143.165/17" ]
 }
 
+@test "net: mac capture returns a lowercase hardware address" {
+    local iface="" d
+    for d in /sys/class/net/*; do
+        [ "${d##*/}" = "lo" ] && continue
+        iface="${d##*/}"
+        break
+    done
+    [ -n "${iface}" ] || skip "no network interface available"
+    run rs_net_iface_mac "${iface}"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^([0-9a-f]{2}:){5}[0-9a-f]{2}$ ]]
+}
+
 @test "net: dns capture prefers resolv.conf nameservers" {
     local resolv="${BATS_TEST_TMPDIR}/resolv.conf"
     printf 'nameserver 9.9.9.9\nnameserver 1.1.1.1\n' >"${resolv}"
