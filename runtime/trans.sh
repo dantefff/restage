@@ -136,22 +136,57 @@ find_disk() {
     return 1
 }
 
-# First partition of $1 (fallback: the disk itself).
+# Root filesystem partition of $1.
+#
+# Cloud images do not agree on partition numbering: some put a BIOS-boot or
+# EFI partition before the root filesystem. Picking the first partition can
+# therefore select one with no filesystem at all. Prefer the largest
+# partition that blkid reports as a Linux filesystem; fall back to the
+# largest partition, then the first one, then the disk itself (whole-disk
+# image with no partition table).
 find_root_partition() {
     _disk=$1
     _base=${_disk#/dev/}
+    _have_blkid=0
+    command -v blkid >/dev/null 2>&1 && _have_blkid=1
+    _root=""
+    _root_size=0
+    _largest=""
+    _largest_size=0
+    _first=""
     for _part in /sys/block/"$_base"/*/; do
         _pname=${_part%%/}
         _pname=${_pname##*/}
         [ -b "/dev/$_pname" ] || continue
-        case "$_pname" in
-            device | queue | holders | slaves | subsystem | trace | uevent) continue ;;
-        esac
-        printf '/dev/%s\n' "$_pname"
-        return 0
+        _dev="/dev/$_pname"
+        [ -n "$_first" ] || _first=$_dev
+        _size=$(cat "/sys/block/$_base/$_pname/size" 2>/dev/null) || _size=0
+        case "$_size" in '' | *[!0-9]*) _size=0 ;; esac
+        if [ "$_size" -gt "$_largest_size" ]; then
+            _largest=$_dev
+            _largest_size=$_size
+        fi
+        if [ "$_have_blkid" = 1 ]; then
+            _type=$(blkid -s TYPE -o value "$_dev" 2>/dev/null) || _type=""
+            case "$_type" in
+                ext2 | ext3 | ext4 | xfs | btrfs | f2fs) ;;
+                *) continue ;;
+            esac
+        fi
+        if [ "$_size" -gt "$_root_size" ]; then
+            _root=$_dev
+            _root_size=$_size
+        fi
     done
-    # Whole-disk image with no partition table
-    printf '%s\n' "$_disk"
+    if [ -n "$_root" ]; then
+        printf '%s\n' "$_root"
+    elif [ -n "$_largest" ]; then
+        printf '%s\n' "$_largest"
+    elif [ -n "$_first" ]; then
+        printf '%s\n' "$_first"
+    else
+        printf '%s\n' "$_disk"
+    fi
 }
 
 # ------------------------------------------------------------- streaming --
@@ -259,11 +294,34 @@ do_linux() {
     poweroff_decision
 }
 
+# Mount the target root filesystem. The netboot initramfs only ships
+# vfat/fuse/squashfs modules; ext4/xfs/btrfs live in the modloop that was
+# merged into /lib/modules earlier. They are not loaded automatically, and
+# busybox mount without -t only tries filesystems already registered in
+# /proc/filesystems, so an unloaded ext4 module makes mount fail with EINVAL.
+mount_root() {
+    _dev=$1
+    _mp=$2
+    _type=$(blkid -s TYPE -o value "$_dev" 2>/dev/null)
+    if [ -n "$_type" ]; then
+        log "root filesystem type: $_type"
+        modprobe "$_type" 2>/dev/null || true
+        mount -t "$_type" "$_dev" "$_mp" && return 0
+        warn "mount -t $_type failed; trying other filesystem types"
+    fi
+    for _type in ext4 ext3 ext2 xfs btrfs f2fs; do
+        modprobe "$_type" 2>/dev/null || true
+        mount -t "$_type" "$_dev" "$_mp" 2>/dev/null && return 0
+    done
+    # Last resort: let busybox try every filesystem in /proc/filesystems.
+    mount "$_dev" "$_mp"
+}
+
 fixup_root() {
     _part=$(find_root_partition "$disk")
     log "root partition: $_part"
     mkdir -p /os
-    mount "$_part" /os || die "could not mount $_part at /os"
+    mount_root "$_part" /os || die "could not mount $_part at /os"
     mount -t proc proc /os/proc 2>/dev/null || true
     mount -t sysfs sysfs /os/sys 2>/dev/null || true
     mount --bind /dev /os/dev 2>/dev/null || true
