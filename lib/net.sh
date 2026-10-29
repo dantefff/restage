@@ -115,14 +115,14 @@ rs_net_render_script() {
     # printf '    echo "configured iface not found, falling back to $IFACE"\n'
     # printf 'fi\n'
 
-    printf 'try_iface() {'
-    printf '  [ -n "$1" ] && ip link show "$1" >/dev/null 2>&1 && { echo "$1"; return 0; }'
-    printf '  return 1'
-    printf '}'
-    printf 'for cand in "${RS_NET_IFACE:-}" eth0 \'
-    printf '       $(ls /sys/class/net | grep -E "^(enp|ens|eno|eth)" | head -n1); do'
-    printf '  if try_iface "$cand"; then IFACE="$cand"; break; fi'
-    printf 'done'
+    printf 'try_iface() {\n'
+    printf '  [ -n "$1" ] && ip link show "$1" >/dev/null 2>&1 && { echo "$1"; return 0; }\n'
+    printf '  return 1\n'
+    printf '}\n'
+    printf 'for cand in "%s" eth0 $(ls /sys/class/net | grep -E "^(enp|ens|eno|eth)" | head -n1); do\n' \
+        "${iface}"
+    printf '  if try_iface "$cand"; then IFACE="$cand"; break; fi\n'
+    printf 'done\n'
 
     if rs_net_is_dhcp; then
         printf 'udhcpc -q -i "$IFACE" 2>/dev/null || true\n'
